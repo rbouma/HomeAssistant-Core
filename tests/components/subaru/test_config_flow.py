@@ -136,7 +136,7 @@ async def test_user_form_pin_not_required(
         "data": deepcopy(TEST_CONFIG),
         "options": {},
         "minor_version": 1,
-        "subentries": {},
+        "subentries": (),
     }
 
     expected["data"][CONF_PIN] = None
@@ -342,7 +342,7 @@ async def test_pin_form_success(hass: HomeAssistant, pin_form) -> None:
         "data": TEST_CONFIG,
         "options": {},
         "minor_version": 1,
-        "subentries": {},
+        "subentries": (),
     }
     result["data"][CONF_DEVICE_ID] = TEST_DEVICE_ID
     assert result == expected

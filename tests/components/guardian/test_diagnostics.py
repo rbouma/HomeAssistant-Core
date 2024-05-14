@@ -41,7 +41,7 @@ async def test_entry_diagnostics(
             "disabled_by": None,
             "created_at": ANY,
             "modified_at": ANY,
-            "subentries": {},
+            "subentries": [],
         },
         "data": {
             "valve_controller": {
