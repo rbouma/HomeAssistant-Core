@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Coroutine
 from typing import Any, NamedTuple
 
-from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.config_entries import ConfigFlowContext, ConfigFlowResult
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import CoreState, Event, HomeAssistant, callback
 from homeassistant.loader import bind_hass
@@ -21,7 +21,7 @@ DISCOVERY_FLOW_DISPATCHER: HassKey[FlowDispatcher] = HassKey(
 @bind_hass
 @callback
 def async_create_flow(
-    hass: HomeAssistant, domain: str, context: dict[str, Any], data: Any
+    hass: HomeAssistant, domain: str, context: ConfigFlowContext, data: Any
 ) -> None:
     """Create a discovery flow."""
     dispatcher: FlowDispatcher | None = None
@@ -43,7 +43,7 @@ def async_create_flow(
 
 @callback
 def _async_init_flow(
-    hass: HomeAssistant, domain: str, context: dict[str, Any], data: Any
+    hass: HomeAssistant, domain: str, context: ConfigFlowContext, data: Any
 ) -> Coroutine[None, None, ConfigFlowResult] | None:
     """Create a discovery flow."""
     # Avoid spawning flows that have the same initial discovery data
@@ -69,7 +69,7 @@ class PendingFlowKey(NamedTuple):
 class PendingFlowValue(NamedTuple):
     """Value for pending flows."""
 
-    context: dict[str, Any]
+    context: ConfigFlowContext
     data: Any
 
 
@@ -108,7 +108,7 @@ class FlowDispatcher:
         await gather_with_limited_concurrency(FLOW_INIT_LIMIT, *init_coros)
 
     @callback
-    def async_create(self, domain: str, context: dict[str, Any], data: Any) -> None:
+    def async_create(self, domain: str, context: ConfigFlowContext, data: Any) -> None:
         """Create and add or queue a flow."""
         key = PendingFlowKey(domain, context["source"])
         values = PendingFlowValue(context, data)
