@@ -51,6 +51,7 @@ from homeassistant.helpers import (
     discovery_flow,
 )
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, format_mac
+from homeassistant.helpers.discovery_flow import DiscoveryKey
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import (
     async_track_state_added_domain,
@@ -155,6 +156,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         await dhcp_watcher.async_start()
         watchers.append(dhcp_watcher)
 
+        rediscovery_watcher = RediscoveryWatcher(
+            hass, address_data, integration_matchers
+        )
+        await rediscovery_watcher.async_start()
+        watchers.append(rediscovery_watcher)
+
         @callback
         def _async_stop(event: Event) -> None:
             for watcher in watchers:
@@ -192,7 +199,11 @@ class WatcherBase:
 
     @callback
     def async_process_client(
-        self, ip_address: str, hostname: str, unformatted_mac_address: str
+        self,
+        ip_address: str,
+        hostname: str,
+        unformatted_mac_address: str,
+        force: bool = False,
     ) -> None:
         """Process a client."""
         if (made_ip_address := cached_ip_addresses(ip_address)) is None:
@@ -216,7 +227,8 @@ class WatcherBase:
 
         data = self._address_data.get(ip_address)
         if (
-            data
+            not force
+            and data
             and data[MAC_ADDRESS] == mac_address
             and data[HOSTNAME].startswith(hostname)
         ):
@@ -270,6 +282,11 @@ class WatcherBase:
             _LOGGER.debug("Matched %s against %s", data, matcher)
             matched_domains.add(domain)
 
+        discovery_key = DiscoveryKey(
+            domain=DOMAIN,
+            key=mac_address,
+            version=1,
+        )
         for domain in matched_domains:
             discovery_flow.async_create_flow(
                 self.hass,
@@ -280,6 +297,7 @@ class WatcherBase:
                     hostname=lowercase_hostname,
                     macaddress=mac_address,
                 ),
+                discovery_key=discovery_key,
             )
 
 
@@ -411,6 +429,49 @@ class DHCPWatcher(WatcherBase):
     async def async_start(self) -> None:
         """Start watching for dhcp packets."""
         self._unsub = await aiodhcpwatcher.async_start(self._async_process_dhcp_request)
+
+
+class RediscoveryWatcher(WatcherBase):
+    """Class to trigger rediscovery on config entry removal."""
+
+    @callback
+    def _handle_config_entry_changed(
+        self,
+        change: config_entries.ConfigEntryChange,
+        entry: config_entries.ConfigEntry,
+    ) -> None:
+        """Handle config entry changes."""
+        if (
+            change != config_entries.ConfigEntryChange.REMOVED
+            or entry.source != config_entries.SOURCE_IGNORE
+            or not (discovery_keys := entry.discovery_keys)
+        ):
+            return
+        for discovery_key in discovery_keys:
+            if (
+                discovery_key.domain != DOMAIN
+                or discovery_key.version != 1
+                or not isinstance(discovery_key.key, str)
+            ):
+                continue
+            mac_address = discovery_key.key
+            _LOGGER.debug("Rediscover unignored service %s", mac_address)
+            for ip_address, data in self._address_data.items():
+                if data[MAC_ADDRESS] == mac_address:
+                    self.async_process_client(
+                        ip_address,
+                        data[HOSTNAME],
+                        mac_address,
+                        True,  # Force rediscovery
+                    )
+
+    async def async_start(self) -> None:
+        """Start watching for config entry removals."""
+        self._unsub = async_dispatcher_connect(
+            self.hass,
+            config_entries.SIGNAL_CONFIG_ENTRY_CHANGED,
+            self._handle_config_entry_changed,
+        )
 
 
 @lru_cache(maxsize=4096, typed=True)
